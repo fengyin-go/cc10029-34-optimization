@@ -9,6 +9,7 @@ from __future__ import annotations
 from app.routers import targetsite as router_targetsite
 from app.routers import selector as router_selector
 from app.routers import crawler as router_crawler
+from app.routers import stockdataset as router_stockdataset
 from app.routers import proxy as router_proxy
 from app.routers import antiblock as router_antiblock
 from app.routers import schedule as router_schedule
@@ -25,4 +26,4 @@ from app.routers import archive as router_archive
 from app.routers import template as router_template
 from app.routers import flowline as router_flowline
 
-ROUTERS = [router_targetsite, router_selector, router_crawler, router_proxy, router_antiblock, router_schedule, router_extractor, router_validate, router_retry, router_storage, router_dedup, router_quality, router_monitor, router_alert, router_apigate, router_archive, router_template, router_flowline]
+ROUTERS = [router_targetsite, router_selector, router_stockdataset, router_crawler, router_proxy, router_antiblock, router_schedule, router_extractor, router_validate, router_retry, router_storage, router_dedup, router_quality, router_monitor, router_alert, router_apigate, router_archive, router_template, router_flowline]

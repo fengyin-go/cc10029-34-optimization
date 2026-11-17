@@ -17,7 +17,9 @@
 ├── backend/                  FastAPI（Python） 后端
 │   ├── app/routers/          每个业务模块一组接口
 │   ├── app/services/         业务规则与状态流转
-│   └── app/store.py          内存数据仓库与示例数据
+│   ├── app/store.py          内存数据仓库与示例数据
+│   ├── app/persistence.py    爬虫任务存量数据集 SQLite 持久层
+│   └── data/                 运行期落库目录（*.db，已 gitignore）
 ├── .gitignore
 └── docker-compose.yml
 ```
@@ -74,6 +76,46 @@ npm run dev
   `backend/app/routers/<模块>.py`，业务规则在 `backend/app/services/<模块>.py`。
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
+
+## 爬虫任务存量数据集（重启可连续追踪）
+
+爬虫任务和下发批次历史上只在进程内存中，服务重启即丢。现在爬虫引擎调用链下新增
+「爬虫任务存量数据集」能力，落到本地 SQLite（`backend/data/crawler_stock.db`，
+可用环境变量 `CRAWLER_STOCK_DB` 覆盖路径，仅依赖标准库）。
+
+- 存量记录沿用既有字段名（任务编号、下发批次等），新增字段只追加：任务版本、归属、
+  来源、保留来源、数据集批次、内容指纹。
+- 任务版本、归属、已下发批次三者同时齐全的存量记录才能进入「已完成」迁移范围，
+  缺任一字段标记为「校验未通过」。
+- 迁移支持中断续跑：重跑只处理待迁移/迁移中记录；记录编号由 SQLite 自增主键固化，
+  已校验任务不会因重跑改变编号或重复写入。
+- 外部送交按业务内容指纹判重，连续/跨批次重复送交全库只保留一份。
+- 上线流水线顺序：依赖核对 → 构建环境检查 → 数据库检查 → 流水线发布；
+  旧内存任务与新记录发生版本冲突时必须显式指定保留来源，发布后切换下游当前指针，
+  下游只采用该来源的完整存量数据集。
+- 采集目标读取当前指针数据集生成「目标站点执行快照」，快照引用迁移后的任务归属、
+  任务版本与已下发批次；重复生成按指纹拒绝，只保留一份。
+
+接口（均在爬虫引擎调用链下）：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/crawler/stock-datasets/migration` | 内存存量迁移/断点续跑（`batch_size` 可模拟中断） |
+| POST | `/api/crawler/stock-datasets/submissions` | 外部存量数据集送交（指纹判重） |
+| GET | `/api/crawler/stock-datasets` | 指针、迁移批次、存量记录、流水线总览 |
+| GET | `/api/crawler/stock-datasets/{batch}` | 单批次明细与版本冲突 |
+| POST | `/api/crawler/stock-datasets/{batch}/precheck` | 依赖/构建环境/数据库三项检查 |
+| POST | `/api/crawler/stock-datasets/{batch}/release` | 流水线发布并切换当前指针 |
+| GET | `/api/targetsite/snapshots` | 目标站点执行快照清单 |
+| POST | `/api/targetsite/snapshots/generate` | 基于当前指针数据集生成快照 |
+
+自测（无需额外依赖）：
+
+```bash
+cd backend
+.venv/bin/python -I tests/test_stockdataset_manual.py   # 7 个领域场景
+.venv/bin/python -I tests/test_stockdataset_api.py      # HTTP 接口冒烟（自动起停服务）
+```
 
 领域：数据工程
 子方向：数据采集、爬虫与RPA

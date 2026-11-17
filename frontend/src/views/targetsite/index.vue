@@ -56,6 +56,35 @@
       </tbody>
     </table>
 
+    <section class="snapshot-panel" data-testid="snapshot-panel">
+      <header class="page-head">
+        <div>
+          <h3>目标站点执行快照清单</h3>
+          <p class="page-desc">读取爬虫任务存量数据集生成执行快照，快照引用迁移后的任务归属、任务版本与已下发批次；重复生成只保留一份。</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn primary" data-testid="snapshot-generate" type="button" :disabled="snapshotBusy" @click="generateSnapshots">生成执行快照</button>
+          <button class="btn" data-testid="snapshot-refresh" type="button" @click="reloadSnapshots">刷新</button>
+        </div>
+      </header>
+      <p v-if="snapshotMessage" class="error-text" data-testid="snapshot-message">{{ snapshotMessage }}</p>
+      <table class="data-table" data-testid="snapshot-table">
+        <thead>
+          <tr>
+            <th v-for="column in snapshotColumns" :key="column">{{ column }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="snap in snapshots" :key="String(snap.id)" :data-testid="`snapshot-row-${snap.id}`">
+            <td v-for="column in snapshotColumns" :key="column">{{ snap[column] ?? '—' }}</td>
+          </tr>
+          <tr v-if="!snapshots.length">
+            <td :colspan="snapshotColumns.length" class="empty-state">暂无执行快照，请先在爬虫引擎发布存量数据集后生成</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
     <div v-if="showCreate" class="modal-backdrop" data-testid="create-modal">
       <form class="modal" @submit.prevent="submitCreate">
         <h3>登记目标站点</h3>
@@ -184,5 +213,41 @@ async function reload() {
   }
 }
 
-onMounted(reload)
+const SNAPSHOT_ENDPOINT = '/api/targetsite/snapshots'
+const snapshotColumns = ['快照编号', '站点编号', '站点名称', '任务编号', '任务版本', '归属', '下发批次', '数据集批次', '状态', '生成时间']
+const snapshots = ref<Row[]>([])
+const snapshotBusy = ref(false)
+const snapshotMessage = ref('')
+
+async function reloadSnapshots() {
+  snapshotMessage.value = ''
+  try {
+    const response = await request(SNAPSHOT_ENDPOINT)
+    if (!response.ok) throw new Error('执行快照清单读取失败')
+    const payload = await response.json()
+    snapshots.value = payload.items ?? []
+  } catch (error) {
+    snapshotMessage.value = error instanceof Error ? error.message : '执行快照清单读取失败'
+  }
+}
+
+async function generateSnapshots() {
+  snapshotBusy.value = true
+  snapshotMessage.value = ''
+  try {
+    const response = await request(`${SNAPSHOT_ENDPOINT}/generate`, { method: 'POST' })
+    const payload = await response.json()
+    snapshotMessage.value = payload.message || (payload.ok ? '快照已生成' : '快照生成失败')
+    await reloadSnapshots()
+  } catch (error) {
+    snapshotMessage.value = error instanceof Error ? error.message : '快照生成失败'
+  } finally {
+    snapshotBusy.value = false
+  }
+}
+
+onMounted(() => {
+  void reload()
+  void reloadSnapshots()
+})
 </script>

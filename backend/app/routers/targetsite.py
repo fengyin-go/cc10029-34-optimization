@@ -8,11 +8,14 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.schemas import ActionPayload, ActionResult, EntryPayload, PageResult
+from app.services.stockdataset import StockDatasetError
+from app.services.target_snapshot import TargetSnapshotService
 from app.services.targetsite import TargetsiteService
 
 router = APIRouter(prefix="/api/targetsite", tags=["采集目标"])
 
 service = TargetsiteService()
+snapshot_service = TargetSnapshotService()
 
 LIST_FIELDS = ["站点编号", "站点名称", "入口URL", "请求方法", "请求头模板", "字符编码", "重试上限", "抓取间隔"]
 STATUSES = ["草稿", "待校验", "已启用", "已停用"]
@@ -63,6 +66,27 @@ def export_entries(
     return StreamingResponse(
         iter([output.getvalue()]), media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="targetsite.csv"'})
+
+
+@router.get("/snapshots")
+def list_snapshots(site_code: str | None = Query(default=None, description="按站点编号过滤")) -> dict[str, object]:
+    """目标站点执行快照清单：反映爬虫任务存量数据集的处理结果。"""
+    items = snapshot_service.list_snapshots(site_code)
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/snapshots/generate")
+def generate_snapshots() -> ActionResult:
+    """读取当前指针的存量数据集生成执行快照；重复生成只保留一份。"""
+    try:
+        result = snapshot_service.generate()
+    except StockDatasetError as exc:
+        return ActionResult(ok=False, message=str(exc))
+    message = (
+        f"基于批次 {result['数据集批次']} 新生成 {len(result['生成'])} 份快照，"
+        f"重复拒绝 {len(result['重复拒绝'])} 份"
+    )
+    return ActionResult(ok=True, message=message, entry=result)
 
 
 @router.get("/{entry_id}", response_model=dict)
